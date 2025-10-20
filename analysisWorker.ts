@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import JSZip from 'jszip';
 import { GEMINI_MODEL } from './constants';
 import type { FileInfo, FileAnalysis } from './types';
 
@@ -81,14 +82,13 @@ const processNextFile = async () => {
     });
 
     currentIndex++;
-    // Use a non-blocking delay to allow other messages to be processed.
     setTimeout(processNextFile, 0);
   } catch (error: any) {
     self.postMessage({ type: 'error', payload: { error: error.message, path: file.path } });
   }
 };
 
-self.onmessage = (event: MessageEvent) => {
+self.onmessage = async (event: MessageEvent) => {
   const { type, payload } = event.data;
   switch (type) {
     case 'init':
@@ -100,11 +100,48 @@ self.onmessage = (event: MessageEvent) => {
       ai = new GoogleGenAI({ apiKey: payload.apiKey });
       break;
     case 'start':
-      files = payload.files;
+      files = [];
       currentIndex = 0;
       analyses = [];
       isPaused = false;
-      processNextFile();
+      
+      self.postMessage({ type: 'unzipping' });
+
+      try {
+        const zip = await JSZip.loadAsync(payload.file);
+        const filePromises: Promise<void>[] = [];
+        const allFiles: FileInfo[] = [];
+
+        Object.keys(zip.files).forEach((filename) => {
+            const zipEntry = zip.files[filename];
+            if (!zipEntry.dir) {
+                const promise = zipEntry.async('string').then(content => {
+                    allFiles.push({ path: filename, content });
+                }).catch(e => {
+                    console.warn(`Could not read file ${filename} as text, skipping.`);
+                });
+                filePromises.push(promise);
+            }
+        });
+
+        await Promise.all(filePromises);
+
+        files = allFiles.filter(file => 
+            !file.path.startsWith('__MACOSX/') && 
+            !file.path.endsWith('.DS_Store') &&
+            !file.path.endsWith('/')
+        );
+
+        self.postMessage({ 
+            type: 'unzip_complete', 
+            payload: { totalFiles: files.length }
+        });
+
+        processNextFile();
+
+      } catch (error: any) {
+        self.postMessage({ type: 'error', payload: { error: 'Failed to process ZIP file: ' + error.message, path: null } });
+      }
       break;
     case 'pause':
       isPaused = true;

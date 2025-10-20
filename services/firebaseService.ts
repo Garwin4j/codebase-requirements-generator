@@ -1,4 +1,5 @@
-import { initializeApp } from 'firebase/app';
+// Fix: Use a namespace import for firebase/app to work around a module resolution issue.
+import * as firebaseApp from 'firebase/app';
 import { getFirestore, collection, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { ProjectData, ProjectUpdate } from '../types';
 
@@ -14,7 +15,7 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+const app = firebaseApp.initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 const projectsCollection = collection(db, 'projects');

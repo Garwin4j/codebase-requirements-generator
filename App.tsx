@@ -2,15 +2,14 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import FileUpload from './components/FileUpload';
 import ProcessingView from './components/ProcessingView';
 import RequirementsDocument from './components/RequirementsDocument';
-import { AppState, FileInfo, FileAnalysis } from './types';
-import { unzipFile } from './services/zipService';
+import { AppState, FileAnalysis } from './types';
 import { generateRequirementsDocument } from './services/geminiService';
 import { createProject, updateProject } from './services/firebaseService';
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   const [zipFile, setZipFile] = useState<File | null>(null);
-  const [fileTree, setFileTree] = useState<FileInfo[]>([]);
+  const [totalFiles, setTotalFiles] = useState(0);
   const [fileAnalyses, setFileAnalyses] = useState<FileAnalysis[]>([]);
   const [currentFile, setCurrentFile] = useState<string>('');
   const [analysisProgress, setAnalysisProgress] = useState(0);
@@ -25,7 +24,6 @@ export default function App() {
       const newProjectId = await createProject(file.name);
       setProjectId(newProjectId);
       setZipFile(file);
-      setAppState(AppState.UNZIPPING);
     } catch (error) {
       console.error('Error creating project in Firebase:', error);
       setErrorMessage('Failed to connect to the database. Please try again later.');
@@ -38,7 +36,7 @@ export default function App() {
     workerRef.current = null;
     setAppState(AppState.IDLE);
     setZipFile(null);
-    setFileTree([]);
+    setTotalFiles(0);
     setFileAnalyses([]);
     setCurrentFile('');
     setAnalysisProgress(0);
@@ -65,52 +63,35 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const processFiles = async () => {
-      if (appState === AppState.UNZIPPING && zipFile && projectId) {
-        try {
-          const files = await unzipFile(zipFile);
-          const relevantFiles = files.filter(file => 
-            !file.path.startsWith('__MACOSX/') && 
-            !file.path.endsWith('.DS_Store') &&
-            !file.path.endsWith('/')
-          );
-          setFileTree(relevantFiles);
-          await updateProject(projectId, { status: 'analyzing' });
-          setAppState(AppState.ANALYZING);
-        } catch (error) {
-          console.error('Error unzipping file:', error);
-          const msg = 'Failed to unzip the file. Please ensure it is a valid .zip archive.';
-          setErrorMessage(msg);
-          if (projectId) await updateProject(projectId, { status: 'error', error: msg });
-          setAppState(AppState.ERROR);
-        }
-      }
-    };
-    processFiles();
-  }, [appState, zipFile, projectId]);
-
-  useEffect(() => {
-    if (appState === AppState.ANALYZING && fileTree.length > 0 && projectId && !isPaused && !workerRef.current) {
+    if (zipFile && projectId && !workerRef.current) {
         const worker = new Worker(new URL('./analysisWorker.ts', import.meta.url), { type: 'module' });
         workerRef.current = worker;
 
         worker.onmessage = (event: MessageEvent) => {
             const { type, payload } = event.data;
             switch(type) {
+                case 'unzipping':
+                    setAppState(AppState.UNZIPPING);
+                    break;
+                case 'unzip_complete':
+                    setTotalFiles(payload.totalFiles);
+                    if (projectId) updateProject(projectId, { status: 'analyzing' });
+                    setAppState(AppState.ANALYZING);
+                    break;
                 case 'progress':
                     setAnalysisProgress(payload.progress);
                     setCurrentFile(payload.currentFile);
-                    setFileAnalyses(prev => [...prev, payload.analysis]);
                     break;
                 case 'done':
-                    updateProject(projectId, { status: 'generating', fileAnalyses: payload.analyses });
+                    setFileAnalyses(payload.analyses);
+                    if (projectId) updateProject(projectId, { status: 'generating', fileAnalyses: payload.analyses });
                     setAppState(AppState.GENERATING);
                     worker.terminate();
                     workerRef.current = null;
                     break;
                 case 'error':
                     console.error('Error from worker:', payload.error, `File: ${payload.path}`);
-                    const msg = `Failed to analyze file: ${payload.path}. Processing has stopped.`;
+                    const msg = payload.path ? `Failed to analyze file: ${payload.path}.` : payload.error;
                     setErrorMessage(msg);
                     if (projectId) updateProject(projectId, { status: 'error', error: msg });
                     setAppState(AppState.ERROR);
@@ -122,7 +103,7 @@ export default function App() {
 
         worker.onerror = (error) => {
             console.error('Unhandled worker error:', error);
-            const msg = 'A critical error occurred during file analysis.';
+            const msg = 'A critical error occurred during file processing.';
             setErrorMessage(msg);
             setAppState(AppState.ERROR);
             if (projectId) updateProject(projectId, { status: 'error', error: msg });
@@ -131,14 +112,9 @@ export default function App() {
         };
         
         worker.postMessage({ type: 'init', payload: { apiKey: process.env.API_KEY } });
-        worker.postMessage({ type: 'start', payload: { files: fileTree } });
+        worker.postMessage({ type: 'start', payload: { file: zipFile } });
     }
-
-    return () => {
-      // This cleanup function will be called if the component unmounts or dependencies change.
-      // We terminate the worker on reset, so we don't need to do it here for every re-render.
-    };
-}, [appState, fileTree, projectId, isPaused]);
+}, [zipFile, projectId, fileAnalyses]);
   
   useEffect(() => {
     const generateDocument = async () => {
@@ -172,7 +148,7 @@ export default function App() {
           <ProcessingView
             state={appState}
             progress={analysisProgress}
-            totalFiles={fileTree.length}
+            totalFiles={totalFiles}
             currentFile={currentFile}
             isPaused={isPaused}
             onPause={handlePause}
