@@ -1,0 +1,5 @@
+{
+  "name": "Codebase Requirements Generator",
+  "description": "Upload a .NET and React application's codebase in a .zip file. This tool analyzes each file and generates a comprehensive requirements document outlining the application's full functionality.",
+  "requestFramePermissions": []
+}
