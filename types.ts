@@ -1,4 +1,4 @@
-import { FieldValue } from 'firebase/firestore';
+import { FieldValue, Timestamp } from 'firebase/firestore';
 
 export enum AppState {
   IDLE = 'IDLE',
@@ -20,19 +20,34 @@ export interface FileAnalysis {
   analysis: string;
 }
 
-export type ProjectStatus = 'unzipping' | 'analyzing' | 'generating' | 'completed' | 'error';
+export type ProjectStatus = 'unzipping' | 'analyzing' | 'generating' | 'completed' | 'error' | 'paused';
 
-export interface ProjectData {
+
+// Represents a project object used within the React application state.
+export interface Project {
+  id: string;
   projectName: string;
-  createdAt: FieldValue;
+  createdAt: Timestamp; // Firestore timestamp object after fetching
   status: ProjectStatus;
+  totalFiles: number;
+  filesToProcess: string[];
   fileAnalyses: FileAnalysis[];
   requirementsDocument: string;
   error: string | null;
+  lastProcessedFile: string | null;
 }
 
-export type ProjectUpdate = Partial<ProjectData>;
-
-export interface Project extends ProjectData {
-  id: string;
+// Represents the data structure stored in Firestore.
+export interface ProjectData {
+  projectName: string;
+  createdAt: FieldValue; // serverTimestamp() on creation
+  status: ProjectStatus;
+  totalFiles: number;
+  filesToProcess: string[];
+  fileAnalyses: FileAnalysis[];
+  requirementsDocument: string;
+  error: string | null;
+  lastProcessedFile: string | null;
 }
+
+export type ProjectUpdate = Partial<Omit<ProjectData, 'createdAt' | 'fileAnalyses'>>;

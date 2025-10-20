@@ -5,9 +5,9 @@ import type { FileInfo, FileAnalysis } from './types';
 
 let ai: GoogleGenAI | null = null;
 let isPaused = false;
-let files: FileInfo[] = [];
-let currentIndex = 0;
-let analyses: FileAnalysis[] = [];
+let currentProcessingQueue: FileInfo[] = [];
+let fileIndex = 0;
+
 
 const MAX_RETRIES = 5;
 const INITIAL_DELAY_MS = 1000;
@@ -61,27 +61,21 @@ const processNextFile = async () => {
     return;
   }
   
-  if (currentIndex >= files.length) {
-    self.postMessage({ type: 'done', payload: { analyses } });
+  if (fileIndex >= currentProcessingQueue.length) {
+    self.postMessage({ type: 'all_analyses_complete' });
     return;
   }
 
-  const file = files[currentIndex];
+  const file = currentProcessingQueue[fileIndex];
   try {
+    self.postMessage({ type: 'progress', payload: { currentFile: file.path } });
+    
     const analysisText = await analyzeFileContentInWorker(file.path, file.content);
     const analysis: FileAnalysis = { path: file.path, analysis: analysisText };
-    analyses.push(analysis);
+    
+    self.postMessage({ type: 'analysis_complete', payload: { analysis } });
 
-    self.postMessage({
-      type: 'progress',
-      payload: {
-        progress: ((currentIndex + 1) / files.length) * 100,
-        currentFile: file.path,
-        analysis,
-      },
-    });
-
-    currentIndex++;
+    fileIndex++;
     setTimeout(processNextFile, 0);
   } catch (error: any) {
     self.postMessage({ type: 'error', payload: { error: error.message, path: file.path } });
@@ -100,9 +94,8 @@ self.onmessage = async (event: MessageEvent) => {
       ai = new GoogleGenAI({ apiKey: payload.apiKey });
       break;
     case 'start':
-      files = [];
-      currentIndex = 0;
-      analyses = [];
+      currentProcessingQueue = [];
+      fileIndex = 0;
       isPaused = false;
       
       self.postMessage({ type: 'unzipping' });
@@ -110,7 +103,7 @@ self.onmessage = async (event: MessageEvent) => {
       try {
         const zip = await JSZip.loadAsync(payload.file);
         const filePromises: Promise<void>[] = [];
-        const allFiles: FileInfo[] = [];
+        let allFiles: FileInfo[] = [];
 
         Object.keys(zip.files).forEach((filename) => {
             const zipEntry = zip.files[filename];
@@ -126,15 +119,22 @@ self.onmessage = async (event: MessageEvent) => {
 
         await Promise.all(filePromises);
 
-        files = allFiles.filter(file => 
+        const allTextFiles = allFiles.filter(file => 
             !file.path.startsWith('__MACOSX/') && 
             !file.path.endsWith('.DS_Store') &&
             !file.path.endsWith('/')
         );
+        
+        const processedPaths = new Set(payload.processedPaths || []);
+        currentProcessingQueue = allTextFiles.filter(file => !processedPaths.has(file.path));
+        const allFilePaths = allTextFiles.map(f => f.path);
 
         self.postMessage({ 
             type: 'unzip_complete', 
-            payload: { totalFiles: files.length }
+            payload: { 
+                totalFiles: allTextFiles.length,
+                filePaths: allFilePaths,
+            }
         });
 
         processNextFile();
