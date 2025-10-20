@@ -30,7 +30,7 @@ export interface Project {
   createdAt: Timestamp; // Firestore timestamp object after fetching
   status: ProjectStatus;
   totalFiles: number;
-  filesToProcess: string[];
+  filesToProcess: FileInfo[];
   fileAnalyses: FileAnalysis[];
   requirementsDocument: string;
   error: string | null;
@@ -43,7 +43,7 @@ export interface ProjectData {
   createdAt: FieldValue; // serverTimestamp() on creation
   status: ProjectStatus;
   totalFiles: number;
-  filesToProcess: string[];
+  filesToProcess: FileInfo[];
   fileAnalyses: FileAnalysis[];
   requirementsDocument: string;
   error: string | null;

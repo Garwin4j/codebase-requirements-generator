@@ -14,7 +14,7 @@ import {
   getDoc,
   arrayUnion
 } from 'firebase/firestore';
-import { ProjectData, ProjectUpdate, Project, FileAnalysis } from '../types';
+import { ProjectData, ProjectUpdate, Project, FileAnalysis, FileInfo } from '../types';
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -33,21 +33,21 @@ const db = getFirestore(app);
 
 const projectsCollection = collection(db, 'projects');
 
-export const createProject = async (projectName: string): Promise<string> => {
-  const newProjectData: Omit<ProjectData, 'createdAt'> & { createdAt: any } = {
-    projectName,
-    createdAt: serverTimestamp(),
-    status: 'unzipping',
-    fileAnalyses: [],
-    requirementsDocument: '',
-    error: null,
-    totalFiles: 0,
-    lastProcessedFile: null,
-    filesToProcess: [],
+export const createProject = async (projectName: string, files: FileInfo[]): Promise<string> => {
+    const newProjectData: Omit<ProjectData, 'createdAt'> & { createdAt: any } = {
+      projectName,
+      createdAt: serverTimestamp(),
+      status: 'analyzing',
+      fileAnalyses: [],
+      requirementsDocument: '',
+      error: null,
+      totalFiles: files.length,
+      lastProcessedFile: null,
+      filesToProcess: files,
+    };
+    const docRef = await addDoc(projectsCollection, newProjectData);
+    return docRef.id;
   };
-  const docRef = await addDoc(projectsCollection, newProjectData);
-  return docRef.id;
-};
 
 export const updateProject = async (projectId: string, data: ProjectUpdate): Promise<void> => {
   const projectDoc = doc(db, 'projects', projectId);

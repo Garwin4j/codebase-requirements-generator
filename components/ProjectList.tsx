@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Project } from '../types';
 import { RefreshCwIcon } from './icons/RefreshCwIcon';
@@ -47,7 +46,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onResumeProject, on
         const baseClasses = "px-2 py-0.5 text-xs font-medium rounded-full";
         switch (status) {
             case 'analyzing':
-            case 'unzipping':
+            case 'unzipping': // This status is now transient and may not be seen
             case 'generating':
                 return <span className={`${baseClasses} bg-blue-900 text-blue-300`}>In Progress</span>;
             case 'paused':
@@ -67,6 +66,10 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onResumeProject, on
         return date.toLocaleString();
     }
 
+    const canResume = (status: Project['status']) => {
+        return ['analyzing', 'paused', 'error'].includes(status);
+    }
+
     return (
         <div className="mt-8">
             <h3 className="px-8 text-lg font-semibold text-gray-300">Recent Projects</h3>
@@ -76,7 +79,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onResumeProject, on
                 <ul className="mt-4 divide-y divide-gray-700">
                     {projects.map(project => (
                         <li key={project.id} className="p-4 flex items-center justify-between hover:bg-gray-700/50 transition-colors">
-                            <div className="flex-1 min-w-0">
+                            <div className="flex-1 min-w-0 px-4">
                                 {editingId === project.id ? (
                                     <input
                                         type="text"
@@ -96,7 +99,7 @@ const ProjectList: React.FC<ProjectListProps> = ({ projects, onResumeProject, on
                                 </div>
                             </div>
                             <div className="flex items-center space-x-2 ml-4">
-                                { (project.status === 'analyzing' || project.status === 'paused' || project.status === 'error' || project.status === 'unzipping' || project.status === 'generating') && (
+                                { canResume(project.status) && (
                                      <button disabled={editingId === project.id} onClick={() => onResumeProject(project)} className="p-2 text-gray-400 hover:text-white hover:bg-gray-600 rounded-full disabled:opacity-50 disabled:cursor-not-allowed" title="Resume">
                                          <RefreshCwIcon className="w-4 h-4" />
                                      </button>

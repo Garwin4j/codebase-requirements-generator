@@ -93,59 +93,51 @@ self.onmessage = async (event: MessageEvent) => {
       }
       ai = new GoogleGenAI({ apiKey: payload.apiKey });
       break;
-    case 'start':
-      currentProcessingQueue = [];
+
+    case 'unzip_and_prepare':
+        try {
+            const zip = await JSZip.loadAsync(payload.file);
+            const filePromises: Promise<void>[] = [];
+            const allFiles: FileInfo[] = [];
+    
+            Object.keys(zip.files).forEach((filename) => {
+                const zipEntry = zip.files[filename];
+                if (!zipEntry.dir) {
+                    const promise = zipEntry.async('string').then(content => {
+                        allFiles.push({ path: filename, content });
+                    }).catch(e => {
+                        console.warn(`Could not read file ${filename} as text, skipping.`);
+                    });
+                    filePromises.push(promise);
+                }
+            });
+    
+            await Promise.all(filePromises);
+    
+            const allTextFiles = allFiles.filter(file => 
+                !file.path.startsWith('__MACOSX/') && 
+                !file.path.endsWith('.DS_Store') &&
+                !file.path.endsWith('/')
+            );
+    
+            self.postMessage({ type: 'unzip_complete', payload: { allTextFiles } });
+    
+          } catch (error: any) {
+            self.postMessage({ type: 'error', payload: { error: 'Failed to process ZIP file: ' + error.message, path: null } });
+          }
+        break;
+
+    case 'start_analysis':
+      currentProcessingQueue = payload.filesToProcess;
       fileIndex = 0;
       isPaused = false;
-      
-      self.postMessage({ type: 'unzipping' });
-
-      try {
-        const zip = await JSZip.loadAsync(payload.file);
-        const filePromises: Promise<void>[] = [];
-        let allFiles: FileInfo[] = [];
-
-        Object.keys(zip.files).forEach((filename) => {
-            const zipEntry = zip.files[filename];
-            if (!zipEntry.dir) {
-                const promise = zipEntry.async('string').then(content => {
-                    allFiles.push({ path: filename, content });
-                }).catch(e => {
-                    console.warn(`Could not read file ${filename} as text, skipping.`);
-                });
-                filePromises.push(promise);
-            }
-        });
-
-        await Promise.all(filePromises);
-
-        const allTextFiles = allFiles.filter(file => 
-            !file.path.startsWith('__MACOSX/') && 
-            !file.path.endsWith('.DS_Store') &&
-            !file.path.endsWith('/')
-        );
-        
-        const processedPaths = new Set(payload.processedPaths || []);
-        currentProcessingQueue = allTextFiles.filter(file => !processedPaths.has(file.path));
-        const allFilePaths = allTextFiles.map(f => f.path);
-
-        self.postMessage({ 
-            type: 'unzip_complete', 
-            payload: { 
-                totalFiles: allTextFiles.length,
-                filePaths: allFilePaths,
-            }
-        });
-
-        processNextFile();
-
-      } catch (error: any) {
-        self.postMessage({ type: 'error', payload: { error: 'Failed to process ZIP file: ' + error.message, path: null } });
-      }
+      processNextFile();
       break;
+
     case 'pause':
       isPaused = true;
       break;
+      
     case 'resume':
       if (isPaused) {
         isPaused = false;
